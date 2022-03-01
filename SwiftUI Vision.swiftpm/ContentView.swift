@@ -1,18 +1,15 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var faceDetected = false
-    @State private var multipleFaces = false
-    @State private var eyesClosed = false
+    @State private var detectedState: VBDState = .noFaces
     var body: some View {
         VStack {
             EmptyView()
-            VisionView(faceDetected: $faceDetected, multipleFaces: $multipleFaces, eyesClosed: $eyesClosed)
+            VisionBlinkDetector(detectedState: $detectedState)
                 .frame(width: 500, height: 500)
                 .mask(RoundedRectangle(cornerRadius: 20))
                 .edgesIgnoringSafeArea(.all)
-            Text(eyesClosed ? "Eyes Closed!" : "Eyes open!")
-                .font(.largeTitle)
+            Text(detectedState.rawValue)
         }
     }
 }

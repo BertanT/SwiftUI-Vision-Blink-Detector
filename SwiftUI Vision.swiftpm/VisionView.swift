@@ -12,16 +12,18 @@ import Vision
 
 // TODO: ADD Concurrency support!
 
-protocol VisionViewControllerDelegate: AnyObject {
-    var faceDetected: Bool { get set }
-    var multipleFaces: Bool { get set }
-    var eyesClosed: Bool { get set }
+enum VBDState: String {
+    case noFaces, eyesOpen, eyesClosed, multipleFaces
 }
 
-final class VisionViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
+protocol VisionBlinkDetectorVCDelegate: AnyObject {
+    var detectedState: VBDState { get set }
+}
+
+final class VisionBlinkDetectorVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
     private let captureSession = AVCaptureSession()
     private let closedEyesThreshold = 0.2
-    weak var delegate: VisionViewControllerDelegate?
+    weak var delegate: VisionBlinkDetectorVCDelegate?
     private lazy var previewLayer = AVCaptureVideoPreviewLayer(session: self.captureSession)
     private let videoDataOutput = AVCaptureVideoDataOutput()
     private var drawingLayers: [CAShapeLayer] = []
@@ -88,7 +90,7 @@ final class VisionViewController: UIViewController, AVCaptureVideoDataOutputSamp
     }
 }
 
-extension VisionViewController {
+extension VisionBlinkDetectorVC {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return
@@ -172,16 +174,13 @@ extension VisionViewController {
         switch observations.count {
         case 0:
             clearFaceRectangle()
-            delegate?.faceDetected = false
-            delegate?.multipleFaces = false
+            delegate?.detectedState = .noFaces
             return
         case 1:
-            delegate?.faceDetected = true
-            delegate?.multipleFaces = false
+            break
         default:
             clearFaceRectangle()
-            delegate?.faceDetected = true
-            delegate?.multipleFaces = true
+            delegate?.detectedState = .multipleFaces
             return
         }
         
@@ -206,54 +205,44 @@ extension VisionViewController {
                 let leftEAR = calculateEAR(eyePoints: leftEye.normalizedPoints, faceBoundingBox: boundingBox)
                 let rightEAR = calculateEAR(eyePoints: rightEye.normalizedPoints, faceBoundingBox: boundingBox)
                 
-                delegate?.eyesClosed = leftEAR < closedEyesThreshold || rightEAR < closedEyesThreshold
+                if leftEAR < closedEyesThreshold || rightEAR < closedEyesThreshold {
+                    delegate?.detectedState = .eyesClosed
+                }else {
+                    delegate?.detectedState = .eyesOpen
+                }
                 print("\(leftEAR) \(rightEAR)")
-                print(delegate?.eyesClosed)
+                print(delegate?.detectedState)
             }
         }
     }
 }
 
-struct VisionView: UIViewControllerRepresentable {
-    typealias UIViewControllerType = VisionViewController
-    @Binding var faceDetected: Bool
-    @Binding var multipleFaces: Bool
-    @Binding var eyesClosed: Bool
+struct VisionBlinkDetector: UIViewControllerRepresentable {
+    typealias UIViewControllerType = VisionBlinkDetectorVC
+    @Binding var detectedState: VBDState
     
-    class Coordinator: NSObject, VisionViewControllerDelegate {
-        var faceDetected = false {
+    class Coordinator: NSObject, VisionBlinkDetectorVCDelegate {
+        var parent: VisionBlinkDetector
+        
+        var detectedState: VBDState = .noFaces {
             willSet {
-                self.parent.faceDetected = newValue
+                self.parent.detectedState = newValue
             }
         }
         
-        var multipleFaces = false {
-            willSet {
-                self.parent.multipleFaces = newValue
-            }
-        }
-        
-        var eyesClosed = false {
-            willSet {
-                self.parent.eyesClosed = newValue
-            }
-        }
-        
-        var parent: VisionView
-        
-        init(_ parent: VisionView) {
+        init(_ parent: VisionBlinkDetector) {
             self.parent = parent
         }
         
     }
     
-    func makeUIViewController(context: Context) -> VisionViewController {
-        let visionVC = VisionViewController()
+    func makeUIViewController(context: Context) -> VisionBlinkDetectorVC {
+        let visionVC = VisionBlinkDetectorVC()
         visionVC.delegate = context.coordinator
         return visionVC
     }
     
-    func updateUIViewController(_ uiViewController: VisionViewController, context: Context) {
+    func updateUIViewController(_ uiViewController: VisionBlinkDetectorVC, context: Context) {
     }
     
     func makeCoordinator() -> Coordinator {
