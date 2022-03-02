@@ -17,7 +17,7 @@ enum VBDState: String {
 }
 
 enum VBDError: Error {
-    case derr
+    case camPermissionDenied, noCaptureDevices, invalidInputs, noInputs, other, cannotGetImageBuffer
 }
 
 protocol VisionBlinkDetectorVCDelegate: AnyObject {
@@ -61,24 +61,6 @@ final class VisionBlinkDetectorVC: UIViewController, AVCaptureVideoDataOutputSam
         }
     }
     
-    // Handle errors here!
-    private func captureSessionSetup() {
-        guard let captureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
-            print("Camera not found!")
-            return
-        }
-        guard let deviceInput = try? AVCaptureDeviceInput(device: captureDevice) else {
-            print("Cannot get device input!")
-            return
-        }
-        if captureSession.canAddInput(deviceInput) {
-            captureSession.addInput(deviceInput)
-            previewLayerSetup()
-        }else {
-            print("Cannot add device input into AVCaptureSession!")
-        }
-    }
-    
     private func previewLayerSetup() {
         self.previewLayer.videoGravity = .resizeAspectFill
         self.view.layer.addSublayer(self.previewLayer)
@@ -92,31 +74,50 @@ final class VisionBlinkDetectorVC: UIViewController, AVCaptureVideoDataOutputSam
         let videoConnection = self.videoDataOutput.connection(with: .video)
         videoConnection?.videoOrientation = .portrait
     }
-}
-
-extension VisionBlinkDetectorVC {
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            return
-        }
+    
+    private func checkCamPermission() -> Bool {
+        let permission = AVCaptureDevice.authorizationStatus(for: .video)
         
-        let landmarksRequest = VNDetectFaceLandmarksRequest(completionHandler: { (request: VNRequest, error: Error?) in
-            DispatchQueue.main.async {
-                if let observations = request.results as? [VNFaceObservation] {
-                    self.handleFaceDetectionObservations(observations: observations)
+        switch permission {
+        case .authorized:
+            return true
+        case .notDetermined:
+            var permission = false
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                if granted {
+                    permission = true
                 }
             }
-        })
-        
-        let imageRequestHandler = VNImageRequestHandler(cvPixelBuffer: imageBuffer, orientation: .leftMirrored, options: [:])
-        
-        do {
-            try imageRequestHandler.perform([landmarksRequest])
-        }catch {
-            print(error.localizedDescription)
+            return permission
+        default:
+            return false
         }
     }
     
+    // Handle errors here!
+    private func captureSessionSetup() {
+        if !checkCamPermission() {
+            delegate?.onError(VBDError.camPermissionDenied)
+            return
+        }
+        guard let captureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
+            delegate?.onError(VBDError.noCaptureDevices)
+            return
+        }
+        guard let deviceInput = try? AVCaptureDeviceInput(device: captureDevice) else {
+            delegate?.onError(VBDError.noInputs)
+            return
+        }
+        if captureSession.canAddInput(deviceInput) {
+            captureSession.addInput(deviceInput)
+            previewLayerSetup()
+        }else {
+            delegate?.onError(VBDError.invalidInputs)
+        }
+    }
+}
+
+extension VisionBlinkDetectorVC {
     // Calculate the Euclidean distance of two points based on the Pythagorean theorem
     private func euclideanDistance(from p1: CGPoint, to p2: CGPoint) -> Double {
         let dx = p2.x - p1.x
@@ -153,10 +154,6 @@ extension VisionBlinkDetectorVC {
         return rect.insetBy(dx: -adjustedWidth, dy: -adjustmentHeight)
     }
     
-    private func clearFaceRectangle() {
-        self.drawingLayers.forEach { drawing in drawing.removeFromSuperlayer() }
-    }
-    
     private func drawFaceRectangle(boundingBox: CGRect) {
         let scaledRect = scaledUpRect(rect: boundingBox, scale: 0.5)
         let drawingPath = UIBezierPath(roundedRect: scaledRect, byRoundingCorners: .allCorners, cornerRadii: CGSize(width: 15, height: 15)).cgPath
@@ -172,6 +169,10 @@ extension VisionBlinkDetectorVC {
         self.view.layer.addSublayer(drawingLayer)
         
         self.lastFaceRectangleOrigin = boundingBox.origin
+    }
+    
+    private func clearFaceRectangle() {
+        self.drawingLayers.forEach { drawing in drawing.removeFromSuperlayer() }
     }
     
     private func handleFaceDetectionObservations(observations: [VNFaceObservation]) {
@@ -217,6 +218,29 @@ extension VisionBlinkDetectorVC {
                 print("\(leftEAR) \(rightEAR)")
                 print(delegate?.detectedState)
             }
+        }
+    }
+    
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            delegate?.onError(VBDError.cannotGetImageBuffer)
+            return
+        }
+        
+        let landmarksRequest = VNDetectFaceLandmarksRequest(completionHandler: { (request: VNRequest, error: Error?) in
+            DispatchQueue.main.async {
+                if let observations = request.results as? [VNFaceObservation] {
+                    self.handleFaceDetectionObservations(observations: observations)
+                }
+            }
+        })
+        
+        let imageRequestHandler = VNImageRequestHandler(cvPixelBuffer: imageBuffer, orientation: .leftMirrored, options: [:])
+        
+        do {
+            try imageRequestHandler.perform([landmarksRequest])
+        }catch {
+            print(error.localizedDescription)
         }
     }
 }
