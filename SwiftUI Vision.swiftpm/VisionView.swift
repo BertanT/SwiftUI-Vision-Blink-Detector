@@ -16,21 +16,25 @@ enum VBDState: String {
     case noFaces, eyesOpen, eyesClosed, multipleFaces
 }
 
+enum VBDError: Error {
+    case derr
+}
+
 protocol VisionBlinkDetectorVCDelegate: AnyObject {
     var detectedState: VBDState { get set }
+    var onError: (VBDError) -> Void { get set }
 }
 
 final class VisionBlinkDetectorVC: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
-    private let captureSession = AVCaptureSession()
-    private let closedEyesThreshold = 0.2
     weak var delegate: VisionBlinkDetectorVCDelegate?
-    private lazy var previewLayer = AVCaptureVideoPreviewLayer(session: self.captureSession)
+    
+    private let captureSession = AVCaptureSession()
     private let videoDataOutput = AVCaptureVideoDataOutput()
+    private let closedEyesThreshold = 0.2
+    private lazy var previewLayer = AVCaptureVideoPreviewLayer(session: self.captureSession)
+    
     private var drawingLayers: [CAShapeLayer] = []
-    private var lastFaceRectanglePoint: CGPoint?
-    //var faceDetected = false
-    //var multipleFaces = false
-    //var eyesClosed: Bool = false
+    private var lastFaceRectangleOrigin: CGPoint?
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -57,6 +61,7 @@ final class VisionBlinkDetectorVC: UIViewController, AVCaptureVideoDataOutputSam
         }
     }
     
+    // Handle errors here!
     private func captureSessionSetup() {
         guard let captureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
             print("Camera not found!")
@@ -68,7 +73,6 @@ final class VisionBlinkDetectorVC: UIViewController, AVCaptureVideoDataOutputSam
         }
         if captureSession.canAddInput(deviceInput) {
             captureSession.addInput(deviceInput)
-            //            Set up the preview layer
             previewLayerSetup()
         }else {
             print("Cannot add device input into AVCaptureSession!")
@@ -143,14 +147,14 @@ extension VisionBlinkDetectorVC {
         return EAR
     }
     
-    private func clearFaceRectangle() {
-        self.drawingLayers.forEach { drawing in drawing.removeFromSuperlayer() }
-    }
-    
     func scaledUpRect(rect: CGRect, scale: Double) -> CGRect {
         let adjustedWidth = rect.width * scale / 2
         let adjustmentHeight = rect.height * scale / 2
         return rect.insetBy(dx: -adjustedWidth, dy: -adjustmentHeight)
+    }
+    
+    private func clearFaceRectangle() {
+        self.drawingLayers.forEach { drawing in drawing.removeFromSuperlayer() }
     }
     
     private func drawFaceRectangle(boundingBox: CGRect) {
@@ -167,7 +171,7 @@ extension VisionBlinkDetectorVC {
         self.drawingLayers.append(drawingLayer)
         self.view.layer.addSublayer(drawingLayer)
         
-        self.lastFaceRectanglePoint = boundingBox.origin
+        self.lastFaceRectangleOrigin = boundingBox.origin
     }
     
     private func handleFaceDetectionObservations(observations: [VNFaceObservation]) {
@@ -188,8 +192,8 @@ extension VisionBlinkDetectorVC {
         
         let drawingRect = self.previewLayer.layerRectConverted(fromMetadataOutputRect: observation.boundingBox)
         
-        if let lastFaceRectanglePoint = lastFaceRectanglePoint {
-            let displacement = euclideanDistance(from: lastFaceRectanglePoint, to: drawingRect.origin)
+        if let lastFaceRectangleOrigin = lastFaceRectangleOrigin {
+            let displacement = euclideanDistance(from: lastFaceRectangleOrigin, to: drawingRect.origin)
             if displacement > 20 {
                 drawFaceRectangle(boundingBox: drawingRect)
             }
@@ -220,6 +224,7 @@ extension VisionBlinkDetectorVC {
 struct VisionBlinkDetector: UIViewControllerRepresentable {
     typealias UIViewControllerType = VisionBlinkDetectorVC
     @Binding var detectedState: VBDState
+    let onError: (Error) -> Void
     
     class Coordinator: NSObject, VisionBlinkDetectorVCDelegate {
         var parent: VisionBlinkDetector
@@ -230,8 +235,11 @@ struct VisionBlinkDetector: UIViewControllerRepresentable {
             }
         }
         
+        var onError: (VBDError) -> Void
+        
         init(_ parent: VisionBlinkDetector) {
             self.parent = parent
+            self.onError = parent.onError
         }
         
     }
