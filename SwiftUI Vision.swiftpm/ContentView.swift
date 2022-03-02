@@ -6,15 +6,23 @@ struct ContentView: View {
     @State private var longBlinkTimer: Timer?
     @State private var userLongBlinked = false
     @State private var toggleState = false
+    @State private var text = "Permission granted!"
     var body: some View {
         VStack {
             EmptyView()
             VisionBlinkDetector(detectedState: $detectedState) { error in 
-                fatalError(error.localizedDescription)
+                if case VBDError.camPermissionDenied = error {
+                    DispatchQueue.main.async {
+                        self.text = "Permission denied"
+                        print("Cam permission denied")
+                        
+                    }
+                }
             }
                 .frame(width: 500, height: 500)
                 .mask(RoundedRectangle(cornerRadius: 20))
                 .edgesIgnoringSafeArea(.all)
+            Text(text)
             Text(detectedState.rawValue)
             Toggle("Eye Switch", isOn: $toggleState)
                 .onChange(of: detectedState) { newValue in
