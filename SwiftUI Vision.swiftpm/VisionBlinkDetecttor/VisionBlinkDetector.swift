@@ -3,7 +3,7 @@ import SwiftUI
 struct VisionBlinkDetector: UIViewControllerRepresentable {
     typealias UIViewControllerType = VisionBlinkDetectorVC
     @Binding var detectedState: VBDState
-    let onError: (Error) -> Void
+    let onError: (VBDError) -> Void
     
     class Coordinator: NSObject, VisionBlinkDetectorVCDelegate {
         var parent: VisionBlinkDetector
@@ -18,7 +18,12 @@ struct VisionBlinkDetector: UIViewControllerRepresentable {
         
         init(_ parent: VisionBlinkDetector) {
             self.parent = parent
-            self.onError = parent.onError
+            func onErrorAsync(_ error: VBDError) {
+                DispatchQueue.main.async {
+                    parent.onError(error)
+                }
+            }
+            self.onError = onErrorAsync(_:)
         }
         
     }

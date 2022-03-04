@@ -1,3 +1,3 @@
 enum VBDError: Error {
-    case camPermissionDenied, noCaptureDevices, invalidInputs, noInputs, other, cannotGetImageBuffer
+    case camPermissionDenied, noCaptureDevices, noInputs, invalidInputs, cannotGetImageBuffer
 }

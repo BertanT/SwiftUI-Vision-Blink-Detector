@@ -10,17 +10,14 @@ struct ContentView: View {
     var body: some View {
         VStack {
             EmptyView()
-            VisionBlinkDetector(detectedState: $detectedState) { error in 
+            GuidedVisionBlinkDtector(detectedState: $detectedState) { error in
                 if case VBDError.camPermissionDenied = error {
-                    DispatchQueue.main.async {
-                        self.text = "Permission denied"
-                        print("Cam permission denied")
-                        
-                    }
+                    self.text = "Permission denied"
+                    print("Cam permission denied")
                 }
             }
-                .frame(width: 500, height: 500)
-                .mask(RoundedRectangle(cornerRadius: 20))
+            .frame(width: 500, height: 500)
+            .mask(RoundedRectangle(cornerRadius: 20))
                 .edgesIgnoringSafeArea(.all)
             Text(text)
             Text(detectedState.rawValue)
